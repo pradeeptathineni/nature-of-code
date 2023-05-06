@@ -7,7 +7,7 @@ export default function Starfield() {
     let height = window.innerHeight;
     let spreadFactor = 3;
     let depthFactor = 10;
-    let twinkleFactor = 1.5;
+    let twinkleFactor = 20;
     let maxDepth = width * depthFactor;
     let speed = 20;
     let cruiseSpeed = 20;
@@ -16,6 +16,14 @@ export default function Starfield() {
     let zOffset = width;
 
     useEffect(() => {
+        // setTimeout(() => {
+        //     let event = new KeyboardEvent("keypress", {
+        //         key: "x",
+        //     });
+        //     canvasRef.current.dispatchEvent(event);
+        //     console.log("dispatched");
+        // }, 10000);
+
         let stars = [];
 
         const sketch = new p5((p) => {
@@ -36,20 +44,11 @@ export default function Starfield() {
                     star.update();
                     star.show();
                 }
-
-                if (p.keyIsPressed) {
-                    if (p.key === "w") {
-                        speed += 10;
-                    } else if (p.key === "s") {
-                        speed -= 10;
-                    } else if (p.key === "x") {
-                        speed = cruiseSpeed;
-                    }
-                }
             };
 
             p.mouseMoved = () => {};
         }, canvasRef.current);
+
         return sketch.remove;
     }, []);
 
@@ -101,7 +100,21 @@ export default function Starfield() {
         };
     }
 
-    return <div ref={canvasRef} />;
+    function handleKeyPress(e) {
+        if (e.key === "w") {
+            speed += 10;
+        } else if (e.key === "s") {
+            speed -= 10;
+        } else if (e.key === "c") {
+            speed = 0;
+        } else if (e.key === "x") {
+            speed = cruiseSpeed;
+        } else if (e.key === "z") {
+            speed = 500;
+        }
+    }
+
+    return <div ref={canvasRef} tabIndex="0" onKeyPress={handleKeyPress} />;
 }
 
 const uid = function () {
