@@ -1,42 +1,81 @@
 import React, { useState, useRef, useEffect } from "react";
 import p5 from "p5";
-import gifFrames from "gif-frames";
+import { GifReader } from "omggif";
 
 export default function Moire() {
     const canvasRef = useRef(null);
-    const [selectedFile, setSelectedFile] = useState(null);
-    const [fileData, setFileData] = useState(null);
-    let imageDataBlobs = [];
-    let p5Images = [];
-    let frames;
     let width = window.innerWidth;
     let height = window.innerHeight;
-    let staticGrid, moveGrid;
-    let gridMoveSpeed = 4;
-    let keysPressed = new Map();
-    let scaleFactor = 13;
-    let img;
-    let imagePixels;
-    let gridLineWidth = 20;
-    let gridLineSpacing = 20;
     let cursor = "default";
 
-    const handleFileInputChange = (e) => {
-        const f = e.target.files[0];
-        if (!f) return;
-        setSelectedFile(f);
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [fileData, setFileData] = useState(null);
+
+    let img;
+    let imageDataBlobs = [];
+    let p5Images = [];
+
+    const [gifFrames, setFrames] = useState([]);
+    let currentFrameIndex = 0;
+    let totalDelay = 0;
+
+    let staticGrid, moveGrid;
+    let gridMoveSpeed = 4;
+    let scaleFactor = 13;
+    let gridLineWidth = 20;
+    let gridLineSpacing = 20;
+
+    async function handleFileInputChange(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        setSelectedFile(file);
+
         const reader = new FileReader();
-        reader.onload = (e) => {
-            setFileData(e.target.result);
-            imageDataBlobs.push(e.target.result);
-        };
-        reader.readAsDataURL(f);
-    };
+        const { type } = file;
+        console.log(type);
+        if (type === "image/png" || type === "image/jpeg") {
+            reader.onload = (e) => {
+                setFileData(e.target.result);
+                imageDataBlobs.push(e.target.result);
+            };
+            reader.readAsDataURL(file);
+        } else if (type === "image/gif" || type === "video/mp4") {
+            reader.onload = (event) => {
+                const gif = new GifReader(new Uint8Array(event.target.result));
+                const gifFrames = [];
+
+                // Set the transparent flag to true
+                gif.transparency = true;
+
+                for (let i = 0; i < gif.numFrames(); i++) {
+                    const frame = gif.frameInfo(i);
+
+                    // Create a new ImageData object with the RGBA data
+                    const imageData = new ImageData(gif.width, gif.height);
+                    gif.decodeAndBlitFrameRGBA(i, imageData.data);
+
+                    // Push the frame data to the gifFrames array
+                    gifFrames.push({
+                        data: imageData.data,
+                        width: frame.width,
+                        height: frame.height,
+                        delay: frame.delay * 10,
+                    });
+                }
+
+                setFrames(gifFrames);
+            };
+
+            reader.readAsArrayBuffer(file);
+        } else {
+            console.log("Unsupported file type.");
+        }
+    }
 
     useEffect(() => {
         const sketch = new p5((p) => {
             p.preload = () => {
-                preloadImage(fileData);
+                preloadFile(fileData);
                 console.log("preloaded");
             };
             p.setup = () => {
@@ -44,20 +83,57 @@ export default function Moire() {
                 p.noSmooth();
                 p.angleMode(p.DEGREES);
                 p.frameRate(3);
-                // gridTestSetup()
+                if (gifFrames.length > 0) {
+                    img = p.createImage(
+                        gifFrames[0].width,
+                        gifFrames[0].height
+                    );
+                }
                 console.log("setuped");
             };
 
             p.draw = () => {
-                console.log(p5.loadGif);
                 p.background(255);
                 p.stroke(0);
                 p.fill(0);
                 p.cursor(cursor);
-                // gridTestDraw();
                 if (p5Images.length > 0) {
                     let image = p5Images[0];
                     drawImage(image);
+                }
+                if (gifFrames.length > 0) {
+                    const currentFrame = gifFrames[1];
+                    const delay = currentFrame.delay;
+
+                    totalDelay += p.deltaTime;
+                    if (totalDelay >= delay) {
+                        totalDelay = 0;
+                        currentFrameIndex =
+                            (currentFrameIndex + 1) % gifFrames.length;
+                    }
+
+                    let w = currentFrame.width;
+                    let h = currentFrame.height;
+                    let data = currentFrame.data;
+
+                    img.loadPixels();
+                    for (let y = 0; y < h; y++) {
+                        for (let x = 0; x < w; x++) {
+                            const pixelIndex = (y * w + x) * 4;
+                            const r = data[pixelIndex];
+                            const g = data[pixelIndex + 1];
+                            const b = data[pixelIndex + 2];
+                            const brightness = (r + g + b) / 3;
+                            img.pixels[pixelIndex] = data[pixelIndex];
+                            img.pixels[pixelIndex + 1] = data[pixelIndex + 1];
+                            img.pixels[pixelIndex + 2] = data[pixelIndex + 2];
+                            img.pixels[pixelIndex + 3] = data[pixelIndex + 3];
+                        }
+                    }
+                    img.updatePixels();
+
+                    let gifFrameP5Image = new P5Image(img, 10, 10);
+                    gifFrameP5Image.show();
                 }
             };
 
@@ -65,57 +141,15 @@ export default function Moire() {
 
             p.mouseReleased = () => {};
 
-            function gridTestSetup() {
-                moveGrid = new Grid(0, 0, 40, 40, 4, 4, 4, 4, true, false);
-                staticGrid = new Grid(
-                    0,
-                    0,
-                    p.map(scaleFactor, 0, 100, 0, width),
-                    p.map(scaleFactor, 0, 100, 0, height),
-                    4,
-                    4,
-                    4,
-                    4
-                );
-                moveGrid = new Grid(
-                    0,
-                    0,
-                    p.map(scaleFactor, 0, 100, 0, width),
-                    p.map(scaleFactor, 0, 100, 0, height),
-                    4,
-                    4,
-                    4,
-                    4,
-                    true,
-                    false
-                );
-                keyboardGrid = new Grid(0, 0, 20, 10, 10, 10, 10, 10);
-            }
-
-            function gridTestDraw() {
-                staticGrid.display();
-                moveGrid.rotation();
-                moveGrid.scaling();
-                moveGrid.moveWithArrowKeys();
-                moveGrid.display();
-                keyboardGrid.moveWithArrowKeys();
-                keyboardGrid.rotation();
-                keyboardGrid.scaling();
-                keyboardGrid.display();
-                grid2.moveWithMouse();
-                grid2.display();
-                p.push();
-                p.fill(255, 0, 0);
-                p.ellipse(0, 0, 20, 20);
-                p.pop();
-            }
-
-            function preloadImage(imageData) {
-                if (imageData) {
+            function preloadFile(data) {
+                if (gifFrames.length > 0) {
+                    console.log(gifFrames);
+                }
+                if (data) {
                     const { type } = selectedFile;
                     if (type === "image/png" || type === "image/jpeg") {
                         img = p.loadImage(
-                            imageData,
+                            data,
                             () => {
                                 console.log("succeeded to load");
                             },
@@ -125,9 +159,7 @@ export default function Moire() {
                         );
                         p5Images.push(new P5Image(img, 0, 0));
                     } else if (type === "image/gif" || type === "video/mp4") {
-                        console.log("hello");
-                        frames = p.parseGif(imageData);
-                        console.log(frames[0]);
+                        if (gifFrames.length > 0) console.log(gifFrames);
                     } else {
                         console.log("Unsupported file type.");
                     }
@@ -189,34 +221,49 @@ export default function Moire() {
                 }
             }
 
-            function drawImageBlackAndWhite(p5Image) {
-                if (imageDataBlobs.length > 0) {
-                    drawImage();
+            function gridTestSetup() {
+                moveGrid = new Grid(0, 0, 40, 40, 4, 4, 4, 4, true, false);
+                staticGrid = new Grid(
+                    0,
+                    0,
+                    p.map(scaleFactor, 0, 100, 0, width),
+                    p.map(scaleFactor, 0, 100, 0, height),
+                    4,
+                    4,
+                    4,
+                    4
+                );
+                moveGrid = new Grid(
+                    0,
+                    0,
+                    p.map(scaleFactor, 0, 100, 0, width),
+                    p.map(scaleFactor, 0, 100, 0, height),
+                    4,
+                    4,
+                    4,
+                    4,
+                    true,
+                    false
+                );
+                keyboardGrid = new Grid(0, 0, 20, 10, 10, 10, 10, 10);
+            }
 
-                    p.loadPixels();
-                    // Get image dimensions
-                    const w = p.width;
-                    const h = image.data.height;
-
-                    let _gridLineWidth = gridLineWidth;
-
-                    // Iterate through pixels by rows and columns
-                    for (let x = 0; x < w; x++) {
-                        if (_gridLineWidth > 0) {
-                            for (let y = 0; y < h; y++) {
-                                // Get index of current pixel in pixels array
-                                const index = (x + y * w) * 4;
-
-                                p.pixels[index + 3] = 0;
-                            }
-                            _gridLineWidth--;
-                        } else {
-                            x += gridLineSpacing;
-                            _gridLineWidth = gridLineWidth;
-                        }
-                    }
-                    p.updatePixels();
-                }
+            function gridTestDraw() {
+                staticGrid.display();
+                moveGrid.rotation();
+                moveGrid.scaling();
+                moveGrid.moveWithArrowKeys();
+                moveGrid.display();
+                keyboardGrid.moveWithArrowKeys();
+                keyboardGrid.rotation();
+                keyboardGrid.scaling();
+                keyboardGrid.display();
+                grid2.moveWithMouse();
+                grid2.display();
+                p.push();
+                p.fill(255, 0, 0);
+                p.ellipse(0, 0, 20, 20);
+                p.pop();
             }
 
             function P5Image(data, x, y) {
@@ -407,9 +454,9 @@ export default function Moire() {
                     let padding = 20;
                     let isOverDraggable = false;
                     if (
-                        p.mouseX > this.x - padding &&
+                        p.mouseX > this.x + padding &&
                         p.mouseX < this.x + this.data.width - padding &&
-                        p.mouseY > this.y - padding &&
+                        p.mouseY > this.y + padding &&
                         p.mouseY < this.y + this.data.height - padding
                     ) {
                         cursor = "grab";
@@ -555,7 +602,7 @@ export default function Moire() {
         }, canvasRef.current);
 
         return sketch.remove;
-    }, [p5Images]);
+    }, [p5Images, gifFrames]);
 
     return (
         <div>
@@ -565,12 +612,4 @@ export default function Moire() {
             <div ref={canvasRef} />
         </div>
     );
-}
-
-function getRGBfromArrayBufferXY(x, y, arrayBuffer, imgWidth) {
-    var red = arrayBuffer[(imgWidth * y + x) * 4];
-    var green = arrayBuffer[(imgWidth * y + x) * 4 + 1];
-    var blue = arrayBuffer[(imgWidth * y + x) * 4 + 2];
-    var alpha = arrayBuffer[(imgWidth * y + x) * 4 + 3];
-    return [red, green, blue, alpha];
 }
