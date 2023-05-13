@@ -102,7 +102,7 @@ export default function Moire() {
                     drawImage(image);
                 }
                 if (gifFrames.length > 0) {
-                    const currentFrame = gifFrames[1];
+                    const currentFrame = gifFrames[currentFrameIndex];
                     const delay = currentFrame.delay;
 
                     totalDelay += p.deltaTime;
@@ -267,7 +267,7 @@ export default function Moire() {
             }
 
             function P5Image(data, x, y) {
-                this.data = data;
+                this.data = Object.seal(data);
                 this.x = x;
                 this.y = y;
                 this.dragging = false;
