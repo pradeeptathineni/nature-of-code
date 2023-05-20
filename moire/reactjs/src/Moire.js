@@ -1,72 +1,119 @@
 import React, { useState, useRef, useEffect } from "react";
 import p5 from "p5";
-import { GifReader } from "omggif";
+import { parseGIF, decompressFrames } from "gifuct-js";
 
 export default function Moire() {
     const canvasRef = useRef(null);
+
     let width = window.innerWidth;
     let height = window.innerHeight;
     let cursor = "default";
 
-    const [selectedFile, setSelectedFile] = useState(null);
+    let selectedFile;
+    const [fileType, setFileType] = useState(null);
     const [fileData, setFileData] = useState(null);
 
     let img;
-    let imageDataBlobs = [];
+    let weavedImage;
     let p5Images = [];
 
-    const [gifFrames, setFrames] = useState([]);
+    let scaleRatio = 1;
+
+    const [gif, setGif] = useState(null);
+    const [video, setVideo] = useState(null);
+    const [frames, setFrames] = useState([]);
     let currentFrameIndex = 0;
     let totalDelay = 0;
 
+    let frameThickness = 1;
+    let maxFrames = 8;
+    let frameRate = 20;
+
     let staticGrid, moveGrid;
-    let gridMoveSpeed = 4;
-    let scaleFactor = 13;
+    let gridMoveSpeed = frameThickness;
     let gridLineWidth = 20;
     let gridLineSpacing = 20;
+    let gridOpacity = 230;
 
-    async function handleFileInputChange(e) {
+    function handleFileInputChange(e) {
         const file = e.target.files[0];
         if (!file) return;
-        setSelectedFile(file);
-
-        const reader = new FileReader();
         const { type } = file;
-        console.log(type);
+        setFileType(type);
+        console.log("File Type:", type);
+
+        let reader = new FileReader();
         if (type === "image/png" || type === "image/jpeg") {
-            reader.onload = (e) => {
-                setFileData(e.target.result);
-                imageDataBlobs.push(e.target.result);
+            reader.onload = (event) => {
+                setFileData(event.target.result);
             };
             reader.readAsDataURL(file);
-        } else if (type === "image/gif" || type === "video/mp4") {
+        } else if (type === "image/gif") {
             reader.onload = (event) => {
-                const gif = new GifReader(new Uint8Array(event.target.result));
-                const gifFrames = [];
+                const buffer = event.target.result;
+                let gif = parseGIF(buffer);
+                let gifFrames = decompressFrames(gif, { withAlpha: true });
 
-                // Set the transparent flag to true
-                gif.transparency = true;
-
-                for (let i = 0; i < gif.numFrames(); i++) {
-                    const frame = gif.frameInfo(i);
-
-                    // Create a new ImageData object with the RGBA data
-                    const imageData = new ImageData(gif.width, gif.height);
-                    gif.decodeAndBlitFrameRGBA(i, imageData.data);
-
-                    // Push the frame data to the gifFrames array
-                    gifFrames.push({
-                        data: imageData.data,
-                        width: frame.width,
-                        height: frame.height,
-                        delay: frame.delay * 10,
-                    });
+                const numFrames = gifFrames.length;
+                if (numFrames > maxFrames) {
+                    let tempArr = [];
+                    let div = Math.ceil(numFrames / maxFrames);
+                    for (let i = 0; i < numFrames; i += div) {
+                        tempArr.push(gifFrames[i]);
+                    }
+                    gifFrames = tempArr;
                 }
 
                 setFrames(gifFrames);
+                setGif(gif);
             };
-
             reader.readAsArrayBuffer(file);
+        } else if (type === "video/mp4" || type === "video/quicktime") {
+            const video = document.createElement("video");
+            video.src = URL.createObjectURL(file);
+            video.crossOrigin = "anonymous";
+
+            video.addEventListener("loadedmetadata", () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                const context = canvas.getContext("2d");
+
+                let videoFrames = [];
+                const extractFrame = () => {
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                    const frame = new Uint8ClampedArray(imageData.data);
+
+                    videoFrames.push(frame);
+
+                    if (video.currentTime < video.duration) {
+                        requestAnimationFrame(extractFrame);
+                    } else {
+                        const numFrames = videoFrames.length;
+                        if (numFrames > maxFrames) {
+                            console.log("hello");
+                            let tempArr = [];
+                            let div = Math.ceil(numFrames / maxFrames);
+                            for (let i = 0; i < numFrames; i += div) {
+                                tempArr.push(videoFrames[i]);
+                            }
+                            videoFrames = tempArr;
+                        }
+
+                        setFrames(videoFrames);
+                        setVideo(video);
+
+                        URL.revokeObjectURL(video.src);
+                        video.remove();
+                    }
+                };
+
+                video.play();
+                extractFrame();
+            });
         } else {
             console.log("Unsupported file type.");
         }
@@ -75,19 +122,129 @@ export default function Moire() {
     useEffect(() => {
         const sketch = new p5((p) => {
             p.preload = () => {
-                preloadFile(fileData);
+                console.log("File Type:", fileType);
+                if (fileType === "image/png" || fileType === "image/jpeg") {
+                    if (fileData) {
+                        let p5Image = p.loadImage(
+                            fileData,
+                            (e) => {
+                                console.log(`${fileType} load succeeded`);
+                            },
+                            (e) => {
+                                console.log(`${fileType} load failed:`, e);
+                            }
+                        );
+                        p5Images.push(new P5Image(p5Image, 0, 0));
+                    }
+                } else if (fileType === "image/gif") {
+                } else if (fileType === "video/mp4") {
+                }
                 console.log("preloaded");
             };
             p.setup = () => {
                 p.createCanvas(width, height);
                 p.noSmooth();
                 p.angleMode(p.DEGREES);
-                p.frameRate(3);
-                if (gifFrames.length > 0) {
-                    img = p.createImage(
-                        gifFrames[0].width,
-                        gifFrames[0].height
-                    );
+                p.frameRate(frameRate);
+                if (fileType) {
+                    if (fileType === "image/png") {
+                    } else if (fileType === "image/jpeg") {
+                    } else if (fileType === "image/gif") {
+                        const numFrames = frames.length;
+                        if (gif && numFrames > 0) {
+                            console.log(frames);
+                            let gifW = gif.lsd.width;
+                            let gifH = gif.lsd.height;
+                            weavedImage = p.createImage(gifW, gifH);
+                            weavedImage.width = gifW;
+                            weavedImage.height = gifH;
+
+                            let frameNumber = 0;
+                            let frameThicknessCopy = frameThickness;
+                            weavedImage.loadPixels();
+                            for (let x = 0; x < gifW; x++) {
+                                for (let y = 0; y < gifH; y++) {
+                                    const pixelIndex = (y * gifW + x) * 4;
+                                    const data = frames[frameNumber].patch;
+
+                                    weavedImage.pixels[pixelIndex] = data[pixelIndex];
+                                    weavedImage.pixels[pixelIndex + 1] = data[pixelIndex + 1];
+                                    weavedImage.pixels[pixelIndex + 2] = data[pixelIndex + 2];
+                                    weavedImage.pixels[pixelIndex + 3] = data[pixelIndex + 3];
+                                }
+                                if (--frameThicknessCopy <= 0) {
+                                    if (++frameNumber >= numFrames) {
+                                        frameNumber = 0;
+                                    }
+                                    frameThicknessCopy = frameThickness;
+                                }
+                            }
+                            weavedImage.updatePixels();
+                            scaleRatio = Math.min(width / weavedImage.width, height / weavedImage.height);
+                            weavedImage.width *= scaleRatio;
+                            weavedImage.height *= scaleRatio;
+                        }
+                        moveGrid = new Grid(
+                            0,
+                            0,
+                            200,
+                            400,
+                            (frames.length - 1) * frameThickness,
+                            1,
+                            frameThickness,
+                            1,
+                            true,
+                            false
+                        );
+                    } else if (fileType === "video/mp4") {
+                        const numFrames = frames.length;
+                        if (video && numFrames > 0) {
+                            console.log(frames);
+                            let vidW = video.videoWidth;
+                            let vidH = video.videoHeight;
+                            weavedImage = p.createImage(vidW, vidH);
+                            weavedImage.width = vidW;
+                            weavedImage.height = vidH;
+
+                            let frameNumber = 0;
+                            let frameThicknessCopy = frameThickness;
+                            weavedImage.loadPixels();
+                            for (let x = 0; x < vidW; x++) {
+                                for (let y = 0; y < vidH; y++) {
+                                    const pixelIndex = (y * vidW + x) * 4;
+                                    const data = frames[frameNumber];
+
+                                    weavedImage.pixels[pixelIndex] = data[pixelIndex];
+                                    weavedImage.pixels[pixelIndex + 1] = data[pixelIndex + 1];
+                                    weavedImage.pixels[pixelIndex + 2] = data[pixelIndex + 2];
+                                    weavedImage.pixels[pixelIndex + 3] = data[pixelIndex + 3];
+                                }
+                                if (--frameThicknessCopy <= 0) {
+                                    if (++frameNumber >= numFrames) {
+                                        frameNumber = 0;
+                                    }
+                                    frameThicknessCopy = frameThickness;
+                                }
+                            }
+                            weavedImage.updatePixels();
+                            scaleRatio = Math.min(width / weavedImage.width, height / weavedImage.height);
+                            weavedImage.width *= scaleRatio;
+                            weavedImage.height *= scaleRatio;
+                            console.log(weavedImage);
+                        }
+                        moveGrid = new Grid(
+                            0,
+                            0,
+                            200,
+                            400,
+                            (frames.length - 1) * frameThickness,
+                            1,
+                            frameThickness,
+                            1,
+                            true,
+                            false
+                        );
+                    }
                 }
                 console.log("setuped");
             };
@@ -95,76 +252,44 @@ export default function Moire() {
             p.draw = () => {
                 p.background(255);
                 p.stroke(0);
-                p.fill(0);
+                p.fill(0, 0, 0, gridOpacity);
                 p.cursor(cursor);
-                if (p5Images.length > 0) {
-                    let image = p5Images[0];
-                    drawImage(image);
-                }
-                if (gifFrames.length > 0) {
-                    const currentFrame = gifFrames[currentFrameIndex];
-                    const delay = currentFrame.delay;
 
-                    totalDelay += p.deltaTime;
-                    if (totalDelay >= delay) {
-                        totalDelay = 0;
-                        currentFrameIndex =
-                            (currentFrameIndex + 1) % gifFrames.length;
+                if (fileType === "image/png" || fileType === "image/jpeg") {
+                    drawImage(p5Images[0]);
+                } else if (fileType === "image/gif") {
+                    if (weavedImage) {
+                        p.image(weavedImage, 0, 0);
                     }
+                    if (frames.length > 0) {
+                        const currentFrame = frames[currentFrameIndex];
+                        const delay = currentFrame.delay;
 
-                    let w = currentFrame.width;
-                    let h = currentFrame.height;
-                    let data = currentFrame.data;
-
-                    img.loadPixels();
-                    for (let y = 0; y < h; y++) {
-                        for (let x = 0; x < w; x++) {
-                            const pixelIndex = (y * w + x) * 4;
-                            const r = data[pixelIndex];
-                            const g = data[pixelIndex + 1];
-                            const b = data[pixelIndex + 2];
-                            const brightness = (r + g + b) / 3;
-                            img.pixels[pixelIndex] = data[pixelIndex];
-                            img.pixels[pixelIndex + 1] = data[pixelIndex + 1];
-                            img.pixels[pixelIndex + 2] = data[pixelIndex + 2];
-                            img.pixels[pixelIndex + 3] = data[pixelIndex + 3];
+                        totalDelay += p.deltaTime;
+                        if (totalDelay >= delay) {
+                            totalDelay = 0;
+                            currentFrameIndex = (currentFrameIndex + 1) % frames.length;
                         }
-                    }
-                    img.updatePixels();
 
-                    let gifFrameP5Image = new P5Image(img, 10, 10);
-                    gifFrameP5Image.show();
+                        moveGrid.rotation();
+                        moveGrid.scaling();
+                        moveGrid.toggleControl();
+                        moveGrid.moveWithWASD();
+                        moveGrid.moveWithMouse();
+                        moveGrid.draw();
+                    }
+                } else if (fileType === "video/mp4") {
+                    if (weavedImage) {
+                        p.image(weavedImage, 0, 0);
+                    }
+                    moveGrid.rotation();
+                    moveGrid.scaling();
+                    moveGrid.toggleControl();
+                    moveGrid.moveWithWASD();
+                    moveGrid.moveWithMouse();
+                    moveGrid.draw();
                 }
             };
-
-            p.mousePressed = () => {};
-
-            p.mouseReleased = () => {};
-
-            function preloadFile(data) {
-                if (gifFrames.length > 0) {
-                    console.log(gifFrames);
-                }
-                if (data) {
-                    const { type } = selectedFile;
-                    if (type === "image/png" || type === "image/jpeg") {
-                        img = p.loadImage(
-                            data,
-                            () => {
-                                console.log("succeeded to load");
-                            },
-                            () => {
-                                console.log("failed to load");
-                            }
-                        );
-                        p5Images.push(new P5Image(img, 0, 0));
-                    } else if (type === "image/gif" || type === "video/mp4") {
-                        if (gifFrames.length > 0) console.log(gifFrames);
-                    } else {
-                        console.log("Unsupported file type.");
-                    }
-                }
-            }
 
             function alterImagePixels(w, h, alteration = "grid") {
                 p.loadPixels();
@@ -191,10 +316,7 @@ export default function Moire() {
                             for (let y = 0; y < h * 4; y++) {
                                 const index = (x + y * w) * 4;
                                 const avg = Math.round(
-                                    (p.pixels[index] +
-                                        p.pixels[index + 1] +
-                                        p.pixels[index + 2]) /
-                                        3
+                                    (p.pixels[index] + p.pixels[index + 1] + p.pixels[index + 2]) / 3
                                 );
                                 p.pixels[index] = avg;
                                 p.pixels[index + 1] = avg;
@@ -210,64 +332,19 @@ export default function Moire() {
 
             function drawImage(p5Image) {
                 if (p5Image.data) {
-                    const scaleRatio = width / p5Image.data.width;
+                    let scaleRatio = width / p5Image.data.width;
                     p5Image.data.width *= scaleRatio;
                     p5Image.data.height *= scaleRatio;
-                    const w = p5Image.data.width;
-                    const h = p5Image.data.height;
+                    let w = p5Image.data.width;
+                    let h = p5Image.data.height;
                     p5Image.move();
-                    p5Image.show();
+                    p5Image.draw();
                     alterImagePixels(w, h, "bw");
                 }
             }
 
-            function gridTestSetup() {
-                moveGrid = new Grid(0, 0, 40, 40, 4, 4, 4, 4, true, false);
-                staticGrid = new Grid(
-                    0,
-                    0,
-                    p.map(scaleFactor, 0, 100, 0, width),
-                    p.map(scaleFactor, 0, 100, 0, height),
-                    4,
-                    4,
-                    4,
-                    4
-                );
-                moveGrid = new Grid(
-                    0,
-                    0,
-                    p.map(scaleFactor, 0, 100, 0, width),
-                    p.map(scaleFactor, 0, 100, 0, height),
-                    4,
-                    4,
-                    4,
-                    4,
-                    true,
-                    false
-                );
-                keyboardGrid = new Grid(0, 0, 20, 10, 10, 10, 10, 10);
-            }
-
-            function gridTestDraw() {
-                staticGrid.display();
-                moveGrid.rotation();
-                moveGrid.scaling();
-                moveGrid.moveWithArrowKeys();
-                moveGrid.display();
-                keyboardGrid.moveWithArrowKeys();
-                keyboardGrid.rotation();
-                keyboardGrid.scaling();
-                keyboardGrid.display();
-                grid2.moveWithMouse();
-                grid2.display();
-                p.push();
-                p.fill(255, 0, 0);
-                p.ellipse(0, 0, 20, 20);
-                p.pop();
-            }
-
             function P5Image(data, x, y) {
-                this.data = Object.seal(data);
+                this.data = data;
                 this.x = x;
                 this.y = y;
                 this.dragging = false;
@@ -280,14 +357,8 @@ export default function Moire() {
                 this.lastMouseResizePosY = 0;
                 this.resizeCornerSize = 10;
 
-                this.show = function () {
-                    p.image(
-                        this.data,
-                        this.x,
-                        this.y,
-                        this.data.width,
-                        this.data.height
-                    );
+                this.draw = function () {
+                    p.image(this.data, this.x, this.y, this.data.width, this.data.height);
                     // this.drawResizeCorners();
                     // this.resize();
                 };
@@ -308,42 +379,22 @@ export default function Moire() {
                     p.fill(255);
                     p.stroke(0);
                     p.strokeWeight(1);
-                    p.rect(
-                        imgX - cornerSize / 2,
-                        imgY - cornerSize / 2,
-                        cornerSize,
-                        cornerSize
-                    );
+                    p.rect(imgX - cornerSize / 2, imgY - cornerSize / 2, cornerSize, cornerSize);
                     // Top right corner
                     p.fill(255);
                     p.stroke(0);
                     p.strokeWeight(1);
-                    p.rect(
-                        imgX + w - cornerSize / 2,
-                        imgY - cornerSize / 2,
-                        cornerSize,
-                        cornerSize
-                    );
+                    p.rect(imgX + w - cornerSize / 2, imgY - cornerSize / 2, cornerSize, cornerSize);
                     // Bottom left corner
                     p.fill(255);
                     p.stroke(0);
                     p.strokeWeight(1);
-                    p.rect(
-                        imgX - cornerSize / 2,
-                        imgY + h - cornerSize / 2,
-                        cornerSize,
-                        cornerSize
-                    );
+                    p.rect(imgX - cornerSize / 2, imgY + h - cornerSize / 2, cornerSize, cornerSize);
                     // Bottom right corner
                     p.fill(255);
                     p.stroke(0);
                     p.strokeWeight(1);
-                    p.rect(
-                        imgX + w - cornerSize / 2,
-                        imgY + h - cornerSize / 2,
-                        cornerSize,
-                        cornerSize
-                    );
+                    p.rect(imgX + w - cornerSize / 2, imgY + h - cornerSize / 2, cornerSize, cornerSize);
                 };
 
                 this.isOverCorner = function () {
@@ -411,10 +462,7 @@ export default function Moire() {
                     this.setResizing();
                     if (this.resizing && p.mouseIsPressed) {
                         this.isOverCorner();
-                        if (
-                            this.lastMouseResizePosX &&
-                            this.lastMouseResizePosY
-                        ) {
+                        if (this.lastMouseResizePosX && this.lastMouseResizePosY) {
                             var dx = p.mouseX - this.lastMouseResizePosX;
                             var dy = p.mouseY - this.lastMouseResizePosY;
                             switch (cursor) {
@@ -508,7 +556,8 @@ export default function Moire() {
                 vS = 10,
                 hS = 40,
                 drawVerticals = true,
-                drawHorizontals = true
+                drawHorizontals = true,
+                validControls = ["mouse", "wasd"]
             ) {
                 this.x = xStart;
                 this.y = yStart;
@@ -524,16 +573,33 @@ export default function Moire() {
                 this.middleY = this.y + this.gridHeight / 2;
                 this.underneath = this.gridHeight + 10;
                 this.rotateAngle = 0;
-                this.scale = p.createVector(1, 1);
+                this.scale = p.createVector(scaleRatio, scaleRatio);
+                this.validControls = validControls;
+                this.currentControl = "mouse";
 
-                this.moveWithMouse = function () {
-                    this.x = p.mouseX - this.middleX;
-                    this.y = p.mouseY - this.underneath;
+                this.toggleControl = function () {
+                    p.keyReleased = () => {
+                        if (p.key === "z") {
+                            let nextControl =
+                                (this.validControls.indexOf(this.currentControl) + 1) % this.validControls.length;
+                            this.currentControl = this.validControls[nextControl];
+                        } else if (p.key === "x") {
+                            let nextControl =
+                                (this.validControls.indexOf(this.currentControl) + -1) % this.validControls.length;
+                            this.currentControl = this.validControls[nextControl];
+                        }
+                    };
                 };
 
-                this.moveWithArrowKeys = function () {
-                    if (p.keyIsDown(65) || p.keyIsDown(p.LEFT_ARROW))
-                        this.x -= gridMoveSpeed;
+                this.moveWithMouse = function () {
+                    if (this.currentControl === "mouse") {
+                        this.x = p.mouseX - this.middleX;
+                        this.y = p.mouseY - this.underneath;
+                    }
+                };
+
+                this.moveWithWASD = function () {
+                    if (p.keyIsDown(65)) this.x -= gridMoveSpeed;
                     if (p.keyIsDown(68)) this.x += gridMoveSpeed;
                     if (p.keyIsDown(87)) this.y -= gridMoveSpeed;
                     if (p.keyIsDown(83)) this.y += gridMoveSpeed;
@@ -555,8 +621,8 @@ export default function Moire() {
                     }
                 };
 
-                this.display = function () {
-                    p.stroke(0);
+                this.draw = function () {
+                    p.noStroke();
                     p.push();
                     p.scale(this.scale.x, this.scale.y);
                     p.translate(this.x + this.middleX, this.y + this.middleY);
@@ -568,7 +634,6 @@ export default function Moire() {
                 };
 
                 this.drawVerticals = function () {
-                    // fill(0, 200);
                     for (var ix = 0; ix < this.vertNum; ix++) {
                         p.rect(
                             this.x + ix * (this.vertSpace + this.vertWidth),
@@ -580,7 +645,6 @@ export default function Moire() {
                 };
 
                 this.drawHorizontals = function () {
-                    // fill(0, 50);
                     for (var iy = 0; iy < this.horizNum; iy++) {
                         p.rect(
                             this.x,
@@ -602,7 +666,7 @@ export default function Moire() {
         }, canvasRef.current);
 
         return sketch.remove;
-    }, [p5Images, gifFrames]);
+    }, [frames]);
 
     return (
         <div>
@@ -610,6 +674,7 @@ export default function Moire() {
                 <input type="file" onChange={handleFileInputChange} />
             </span>
             <div ref={canvasRef} />
+            <video id="video-player" controls style={{ display: "none" }}></video>
         </div>
     );
 }
