@@ -16,7 +16,7 @@
         "video.js": "^8.3.0"
     },
     "scripts": {
-        "start": "BROWSER=firefox react-scripts start",
+        "start": "(set BROWSER=firefox && react-scripts start) || ($env:BROWSER = firefox && react-scripts start) || (BROWSER=firefox react-scripts start)",
         "eject": "react-scripts eject"
     },
     "browserslist": {
