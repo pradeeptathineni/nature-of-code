@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from "react";
 import p5, { PI } from "p5";
 import Tile from "./Tile";
 
-export const DIMENSION = 2;
+export const DIMENSION = 2; // set this to 1 to operate on one tile as base case
 export const WIDTH = window.innerHeight;
 export const HEIGHT = window.innerHeight;
 export const TILE_WIDTH = Math.ceil(WIDTH / DIMENSION);
