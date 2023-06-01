@@ -10,9 +10,9 @@ import {
 
 const SIDE_COLORS = {
     0: [0, 255, 0],
-    1: [0, 0, 255],
+    1: [255, 100, 100],
     2: [255, 255, 0],
-    3: [0, 255, 255],
+    3: [100, 150, 255],
 };
 
 let ORIENTATION = 0;
@@ -156,8 +156,8 @@ class Port {
         p.push();
         p.strokeWeight(5);
         p.textFont("Georgia");
-        p.textSize(8);
-        let sideColor = [255];
+        p.textSize(14);
+        let sideColor = [100, 100, 100, 100];
         if (this.side >= 0) {
             sideColor = SIDE_COLORS[this.side];
         }
