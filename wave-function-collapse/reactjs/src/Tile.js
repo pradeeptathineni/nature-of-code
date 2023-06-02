@@ -18,19 +18,36 @@ const SIDE_COLORS = {
 let ORIENTATION = 0;
 
 export default class Tile {
-    constructor(index) {
+    constructor(
+        p,
+        index,
+        drawPattern = true,
+        drawOutline = true,
+        drawIndices = true
+    ) {
+        this.img = p.createGraphics(TILE_WIDTH, TILE_HEIGHT);
+        this.img.angleMode(p.DEGREES);
+        this.img.rectMode(p.CENTER);
+        this.img.translate(TILE_WIDTH / 2, TILE_HEIGHT / 2);
         this.index = index;
         this.row = Math.floor(this.index / DIMENSION);
         this.col = this.index % DIMENSION;
         this.x = this.row * TILE_WIDTH;
         this.y = this.col * TILE_HEIGHT;
         this.ports = [...Array(TILE_PORTS * 4).keys()].map(
-            (index) => new Port(index, this.x, this.y)
+            (index) => new Port(index, this)
         );
         this.orientation = 0;
+        this.drawPattern = drawPattern;
+        this.drawOutline = drawOutline;
+        this.drawIndices = drawIndices;
+        // console.log(
+        //     `Tile:\t\t${index}\nw*h:\t\t${TILE_WIDTH}*${TILE_HEIGHT}\n(X, Y):\t\t(${this.x}, ${this.y})\n(row, col):\t\t(${this.row}, ${this.col})`
+        // );
     }
 
     setOrientation(orientation) {
+        if (orientation >= 360) orientation %= 360;
         this.orientation = orientation;
         ORIENTATION = orientation;
         return this.orientation;
@@ -38,53 +55,66 @@ export default class Tile {
 
     addToOrientation(orientation) {
         this.orientation += orientation;
-        ORIENTATION += orientation;
+        if (this.orientation >= 360) this.orientation %= 360;
+        ORIENTATION = this.orientation;
+
         return this.orientation;
     }
 
-    rotateTile(p, degrees = this.orientation) {
+    draw(p, drawOutline = true, drawPattern = true, drawIndices = true) {
         p.push();
-        p.translate(this.x + TILE_WIDTH / 2, this.y + TILE_HEIGHT / 2);
-        p.rotate(degrees);
-        p.translate(-TILE_WIDTH / 2, -TILE_HEIGHT / 2);
-        p.pop();
-    }
-
-    showOutline(p) {
-        p.push();
-        p.strokeWeight(5);
-        p.stroke(255, 0, 0);
-        p.noFill();
-        this.rotateTile(p);
-        p.rect(this.x, this.y, TILE_WIDTH, TILE_HEIGHT);
-        p.pop();
-    }
-
-    showPattern(p) {
-        for (let i = 0; i < this.ports.length; i++) {
-            let port = this.ports[i];
-            if (port.active) {
-                p.push();
-                this.rotateTile(p); // when I add this in,drawing port labels and dots messes up
-                this.drawLineAtPort(p, port);
-                p.pop();
+        this.img.clear();
+        if (drawOutline) {
+            this.img.push();
+            this.img.strokeWeight(1);
+            this.img.stroke(255, 0, 0);
+            this.img.rotate(this.orientation);
+            this.img.rect(0, 0, TILE_WIDTH, TILE_HEIGHT);
+            this.img.pop();
+        }
+        if (drawPattern) {
+            for (let i = 0; i < this.ports.length; i++) {
+                let port = this.ports[i];
+                if (port.active) {
+                    this.img.push();
+                    this.img.strokeWeight(100);
+                    this.img.stroke(255, 255, 0);
+                    this.img.rotate(this.orientation);
+                    this.drawLineAtPort(p, port);
+                    this.img.pop();
+                }
             }
         }
+        if (drawIndices) {
+            for (let port of this.ports) {
+                this.img.push();
+                this.img.rotate(this.orientation);
+                port.draw(p);
+                this.img.pop();
+            }
+        }
+        p.image(this.img, this.x, this.y);
+        p.pop();
     }
 
     drawLineAtPort(p, port) {
-        p.noStroke();
-        p.fill(0);
+        this.img.push();
+        this.img.noStroke();
+        this.img.fill(0);
+        this.img.translate(
+            -TILE_WIDTH / 2 - TILE_WIDTH * this.row,
+            -TILE_HEIGHT / 2 - TILE_HEIGHT * this.col
+        );
         const rectWidth = TILE_WIDTH / (TILE_PORTS * 4);
         const rectHeight = TILE_HEIGHT / 1.42;
         switch (port.side) {
             case 0:
-                p.translate(-rectWidth / 2, 0);
-                p.rect(port.x, port.y, rectWidth, rectHeight);
+                this.img.translate(0, rectHeight / 2);
+                this.img.rect(port.x, port.y, rectWidth, rectHeight);
                 break;
             case 1:
-                p.translate(0, rectWidth / 2);
-                p.rect(
+                this.img.translate(rectHeight / 2, rectWidth);
+                this.img.rect(
                     port.x - rectHeight,
                     port.y - rectWidth,
                     rectHeight,
@@ -92,17 +122,17 @@ export default class Tile {
                 );
                 break;
             case 2:
-                p.translate(rectWidth / 2, 0);
-                p.rect(
+                this.img.translate(rectWidth, 0);
+                this.img.rect(
                     port.x - rectWidth,
-                    port.y - rectHeight,
+                    port.y - rectHeight / 2,
                     rectWidth,
                     rectHeight
                 );
                 break;
             case 3:
-                p.translate(0, -rectWidth / 2);
-                p.rect(port.x, port.y, rectHeight, rectWidth);
+                this.img.translate(rectHeight / 2, 0);
+                this.img.rect(port.x, port.y, rectHeight, rectWidth);
                 break;
             case -1:
                 break;
@@ -113,6 +143,7 @@ export default class Tile {
             case -4:
                 break;
         }
+        this.img.pop();
     }
 
     randomizeActivePorts() {
@@ -123,12 +154,14 @@ export default class Tile {
 }
 
 class Port {
-    constructor(index, tileX, tileY) {
+    constructor(index, tile, drawIndices = true) {
         this.index = index;
+        this.tile = tile;
         this.active = Math.random() < 0.5;
         this.side = Math.floor(index / TILE_PORTS);
-        this.tileX = tileX;
-        this.tileY = tileY;
+        const tileX = tile.x;
+        const tileY = tile.y;
+        this.drawIndices = drawIndices;
         const offset = index % TILE_PORTS;
         if (this.side === 0) {
             this.x = tileX + offset * PORT_WIDTH;
@@ -152,22 +185,25 @@ class Port {
         // console.log(`Tile (X, Y): (${tileX}, ${tileY})\nPort (Index, X, Y): (${this.index}, ${this.x}, ${this.y})`);
     }
 
-    display(p, showIndices = true) {
-        p.push();
-        p.strokeWeight(5);
-        p.textFont("Georgia");
-        p.textSize(14);
+    draw(p) {
+        this.tile.img.push();
+        this.tile.img.translate(
+            -TILE_WIDTH / 2 - TILE_WIDTH * this.tile.row,
+            -TILE_HEIGHT / 2 - TILE_HEIGHT * this.tile.col
+        );
+        this.tile.img.stroke(0);
+        this.tile.img.strokeWeight(5);
         let sideColor = [100, 100, 100, 100];
         if (this.side >= 0) {
             sideColor = SIDE_COLORS[this.side];
         }
-        p.stroke(...sideColor);
-        // this.rotatePort(p); // when I add this in,drawing port labels and dots messes up
-        p.point(this.x, this.y);
-        if (showIndices) {
-            p.stroke(...sideColor);
+        this.tile.img.stroke(...sideColor);
+        this.tile.img.point(this.x, this.y);
+        if (this.drawIndices) {
+            this.tile.img.stroke(...sideColor);
             const textOffset = 15;
-            let xOff, yOff;
+            let xOff = 0,
+                yOff = 0;
             switch (this.side) {
                 case 0:
                     xOff = this.x;
@@ -202,14 +238,10 @@ class Port {
                     yOff = this.y - textOffset;
                     break;
             }
-            p.text(this.index, xOff, yOff);
+            this.tile.img.textFont("Georgia");
+            this.tile.img.textSize(10);
+            this.tile.img.text(this.index, xOff, yOff);
         }
-        p.pop();
-    }
-
-    rotatePort(p, degrees = ORIENTATION) {
-        p.translate(this.tileX + TILE_WIDTH / 2, this.tileY + TILE_HEIGHT / 2);
-        p.rotate(degrees);
-        p.translate(this.tileX - TILE_WIDTH / 2, this.tileY - TILE_HEIGHT / 2);
+        this.tile.img.pop();
     }
 }
