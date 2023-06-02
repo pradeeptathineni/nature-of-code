@@ -29,7 +29,6 @@ export default function WaveFunctionCollapse() {
             };
 
             p.draw = () => {
-                // p.clear();
                 for (let i = 0; i < tiles.length; i++) {
                     p.push();
                     let tile = tiles[i];
