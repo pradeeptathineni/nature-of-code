@@ -5,7 +5,7 @@ import Tile from "./Tile";
 export const WIDTH = window.innerHeight;
 export const HEIGHT = window.innerHeight;
 
-export const DIMENSION = 3;
+export const DIMENSION = 2;
 
 export const TILE_WIDTH = WIDTH / DIMENSION;
 export const TILE_HEIGHT = HEIGHT / DIMENSION;
@@ -15,17 +15,19 @@ export const TILE_PORTS = NUM_TILE_PORTS + 1;
 
 export const PORT_WIDTH = TILE_WIDTH / TILE_PORTS;
 export const PORT_HEIGHT = TILE_HEIGHT / TILE_PORTS;
-export const PORT_ACTIVE_CHANCE = 0.6;
+export const PORT_ACTIVE_CHANCE = 0.5;
 
-const REDUCE_OPTIONS_FACTOR = 4;
+const REDUCE_OPTIONS_FACTOR = 1;
 export const NUM_POSSIBLE_OPTIONS = Math.ceil(
     DIMENSION ** 2 / REDUCE_OPTIONS_FACTOR
 );
 
 const INCLUDE_EMPTY_TILE = false;
-const INCLUDE_FULL_TILE = false;
+const INCLUDE_FULL_TILE = true;
 
 let TOGGLE = 0;
+let STARTING_TILE;
+let LOOP_COUNT = 0;
 
 export default function WaveFunctionCollapse() {
     const canvasRef = useRef(null);
@@ -39,9 +41,7 @@ export default function WaveFunctionCollapse() {
                 p.createCanvas(WIDTH, HEIGHT);
                 p.angleMode(p.DEGREES);
                 p.rectMode(p.CENTER);
-                // p.noLoop();
-                p.frameRate(1);
-                p.push();
+                // p.frameRate(7);
                 if (DIMENSION === 1) {
                     let tile = new Tile(p, 0, true);
                     referenceTiles.push(tile);
@@ -63,50 +63,203 @@ export default function WaveFunctionCollapse() {
                             shouldBeFull
                         );
                         referenceTiles.push(tile);
-                        // console.log(tile);
                     }
                 }
-                p.pop();
-                p.push();
+                // console.log("Before removing dupe refs", referenceTiles);
+                referenceTiles = removeDuplicateTiles(referenceTiles);
                 for (let i = 0; i < DIMENSION ** 2; i++) {
                     let tile = new Tile(p, i, false, true, false);
                     collapsingTiles.push(tile);
                 }
-                p.pop();
-                console.log("referenceTiles", referenceTiles);
-                console.log("collapsingTiles", collapsingTiles);
-                collapse(true);
+                // console.log("After removing dupe refs", referenceTiles);
+                updateOptions(true);
             };
 
             p.draw = () => {
+                // console.log(`  [START] \tloop ${LOOP_COUNT}`);
                 p.clear();
+                collapse(LOOP_COUNT === 0);
+                updateOptions();
                 let drawTheseTiles =
                     TOGGLE === 0 ? collapsingTiles : referenceTiles;
                 for (let i = 0; i < drawTheseTiles.length; i++) {
-                    // collapse();
                     let tile = drawTheseTiles[i];
-                    tile.draw(p);
+                    if (tile !== null) tile.draw(p, false, true, false);
                 }
+                // console.log(`  [END] \tloop ${LOOP_COUNT}`);
+                LOOP_COUNT++;
+                // p.noLoop();
             };
 
             p.mouseClicked = () => {
-                TOGGLE++;
-                if (TOGGLE >= 2) TOGGLE = 0;
+                if (p.mouseX <= TILE_WIDTH && p.mouseY <= TILE_HEIGHT) {
+                    TOGGLE++;
+                    if (TOGGLE >= 2) TOGGLE = 0;
+                    // console.log(
+                    //     TOGGLE
+                    //         ? "reference tiles will be shown next frame"
+                    //         : "collapsing tiles will be shown next frame"
+                    // );
+                } else {
+                    p.loop();
+                }
             };
 
-            function collapse(randomly = false) {
+            function updateOptions(init = false) {
+                assertType(init, "boolean");
+                if (init) {
+                    let options = {};
+                    for (let i = 0; i < referenceTiles.length; i++) {
+                        const referenceTile = referenceTiles[i];
+                        const refSigs = arrayCycles(referenceTile.signature);
+                        for (const sig of refSigs) {
+                            options[sig.join("")] = i;
+                        }
+                    }
+                    for (let i = 0; i < collapsingTiles.length; i++) {
+                        const collapsingTile = collapsingTiles[i];
+                        collapsingTile.options = options;
+                    }
+                } else {
+                    for (let i = 0; i < collapsingTiles.length; i++) {
+                        let c = collapsingTiles[i];
+
+                        if (c.collapsed) continue;
+
+                        let topTile = collapsingTiles[c.TILE_TOP];
+                        let rightTile = collapsingTiles[c.TILE_RIGHT];
+                        let bottomTile = collapsingTiles[c.TILE_BOTTOM];
+                        let leftTile = collapsingTiles[c.TILE_LEFT];
+
+                        const tileTopBottomPorts = topTile?.collapsed
+                            ? topTile?.VSIDE_BOTTOM
+                            : null;
+                        const tileRightLeftPorts = rightTile?.collapsed
+                            ? rightTile?.VSIDE_LEFT
+                            : null;
+                        const tileBottomTopPorts = bottomTile?.collapsed
+                            ? bottomTile?.VSIDE_TOP
+                            : null;
+                        const tileLeftRightPorts = leftTile?.collapsed
+                            ? leftTile?.VSIDE_RIGHT
+                            : null;
+
+                        if (
+                            tileTopBottomPorts === null &&
+                            tileRightLeftPorts === null &&
+                            tileBottomTopPorts === null &&
+                            tileLeftRightPorts === null
+                        )
+                            continue;
+
+                        const placeholder = "?".repeat(NUM_TILE_PORTS);
+                        const signatureNeeded = [
+                            tileTopBottomPorts !== null
+                                ? tileTopBottomPorts
+                                : placeholder,
+                            tileRightLeftPorts !== null
+                                ? tileRightLeftPorts
+                                : placeholder,
+                            tileBottomTopPorts !== null
+                                ? tileBottomTopPorts
+                                : placeholder,
+                            tileLeftRightPorts !== null
+                                ? tileLeftRightPorts
+                                : placeholder,
+                        ];
+                        let possibleSignatures = generateBinaries(
+                            signatureNeeded.join("")
+                        );
+
+                        // console.log("possibleSignatures", possibleSignatures);
+
+                        // console.log(
+                        //     tileTopBottomPorts,
+                        //     tileRightLeftPorts,
+                        //     tileBottomTopPorts,
+                        //     tileLeftRightPorts
+                        // );
+
+                        // console.log(
+                        //     "Before updateOptions:",
+                        //     i,
+                        //     Object.keys(c.options).length,
+                        //     JSON.stringify(c.options, undefined, 4)
+                        // );
+                        let options = {};
+                        for (let i = 0; i < referenceTiles.length; i++) {
+                            const refRotationSigs =
+                                referenceTiles[i].rotationSignatures;
+                            // console.log(refRotationSigs);
+                            for (const option of possibleSignatures) {
+                                // console.log(option, option in refRotationSigs);
+                                if (option in refRotationSigs) {
+                                    options[option] = i;
+                                }
+                            }
+                        }
+                        c.options = options;
+
+                        // console.log(
+                        //     "After update options:",
+                        //     i,
+                        //     Object.keys(c.options).length,
+                        //     JSON.stringify(c.options, undefined, 4)
+                        // );
+                    }
+                }
+            }
+
+            function collapse(init = false) {
+                assertType(init, "boolean");
                 let referenceChoiceOffset =
                     INCLUDE_EMPTY_TILE * 1 + INCLUDE_FULL_TILE * 1;
-                let leastOptions = Number.NEGATIVE_INFINITY;
-                let referenceIndex, collapsingIndex;
+                let referenceIdx,
+                    collapsingIdx,
+                    rotation = 0;
 
-                if (randomly) {
-                    if (DIMENSION === 1) {
-                        referenceIndex = 0;
-                    } else if (DIMENSION === 2) {
-                        referenceIndex = referenceChoiceOffset;
+                // Find the tile indices with the lowest options
+                let leastOptions = Number.POSITIVE_INFINITY;
+                let equalLeastOptions = [];
+                if (init) {
+                    // Pick the index of any collapsing tile randomly to be the tile with lowest options
+                    equalLeastOptions.push(
+                        Math.floor(Math.random() * collapsingTiles.length)
+                    );
+                } else {
+                    for (let i = 0; i < collapsingTiles.length; i++) {
+                        let tile = collapsingTiles[i];
+                        if (tile.collapsed) continue;
+                        let numOptions = Object.keys(tile.options).length;
+                        if (numOptions <= leastOptions) {
+                            if (numOptions < leastOptions) {
+                                equalLeastOptions = [];
+                                leastOptions = numOptions;
+                            }
+                            equalLeastOptions.push(i);
+                        }
                     }
-                    referenceIndex =
+                }
+                // console.log("equalLeastOptions", equalLeastOptions);
+
+                if (equalLeastOptions.length === 0) return;
+
+                // Choose an index of a least options collapsing tile randomly
+                collapsingIdx =
+                    equalLeastOptions[
+                        Math.floor(Math.random() * equalLeastOptions.length)
+                    ];
+
+                // console.log("collapsingIdx", collapsingIdx);
+
+                // Get the index of a random or specific reference tile
+                if (init) {
+                    if (DIMENSION === 1) {
+                        referenceIdx = 0;
+                    } else if (DIMENSION === 2) {
+                        referenceIdx = referenceChoiceOffset;
+                    }
+                    referenceIdx =
                         DIMENSION > 1
                             ? Math.floor(
                                   Math.random() *
@@ -115,99 +268,96 @@ export default function WaveFunctionCollapse() {
                               ) + referenceChoiceOffset
                             : 0;
                 } else {
-                    referenceIndex = Math.floor(
-                        Math.random() * referenceTiles.length
-                    );
-                }
-
-                let equalLeastOptions = [];
-                if (randomly) {
-                    equalLeastOptions.push(
-                        Math.floor(Math.random() * collapsingTiles.length)
-                    );
-                } else {
-                    for (let i = 0; i < collapsingTiles.length; i++) {
-                        console.log("Before:", equalLeastOptions);
-                        let tile = collapsingTiles[i];
-                        let numOptions = tile.options.length;
-                        if (numOptions <= leastOptions) {
-                            if (numOptions < leastOptions) {
-                                equalLeastOptions = [];
-                                leastOptions = numOptions;
+                    let finalOptions = [];
+                    const options = collapsingTiles[collapsingIdx].options;
+                    // console.log(collapsingTiles[collapsingIdx]);
+                    for (let i = 0; i < referenceTiles.length; i++) {
+                        const refRotationSigs =
+                            referenceTiles[i].rotationSignatures;
+                        for (const option in options) {
+                            if (option in refRotationSigs) {
+                                let index = options[option];
+                                let rotation = refRotationSigs[option];
+                                finalOptions.push([index, rotation]);
                             }
-                            equalLeastOptions.push(i);
                         }
-                        console.log("After:", equalLeastOptions);
                     }
-                }
-                console.log("equalLeastOptions", equalLeastOptions);
-                if (equalLeastOptions.length > 1) {
-                    collapsingIndex =
-                        equalLeastOptions[
-                            Math.floor(
-                                Math.random() * (equalLeastOptions.length - 1)
-                            )
+                    // console.log(finalOptions);
+                    let finalChoice =
+                        finalOptions[
+                            Math.floor(Math.random() * finalOptions.length)
                         ];
-                } else {
-                    collapsingIndex = equalLeastOptions[0];
+                    referenceIdx = finalChoice[0];
+                    rotation = finalChoice[1];
+                    // console.log(referenceIdx, rotation);
                 }
-                const referenceTile = referenceTiles[referenceIndex];
-                console.log("referenceTile", referenceTile);
-                if (randomly) {
-                    console.log(
-                        "Before collapsingTile:",
-                        collapsingTiles[collapsingIndex]
-                    );
-                    collapsingTiles[collapsingIndex] = new Tile(
-                        p,
-                        collapsingIndex
-                    );
-                    collapsingTiles[collapsingIndex].TOP = referenceTile.TOP;
-                    collapsingTiles[collapsingIndex].RIGHT =
-                        referenceTile.RIGHT;
-                    collapsingTiles[collapsingIndex].BOTTOM =
-                        referenceTile.BOTTOM;
-                    collapsingTiles[collapsingIndex].LEFT = referenceTile.LEFT;
-                    collapsingTiles[collapsingIndex].ports.map((port) => {
-                        const referencePorts = referenceTile.ports;
-                        let referencePort;
-                        for (let idx in referencePorts) {
-                            const refPort = referencePorts[idx];
-                            if (refPort.index === port.index) {
-                                referencePort = refPort;
-                            }
-                        }
-                        // console.log("ref port:", referencePort);
-                        // console.log("coll port:", port);
-                        port.active = referencePort.active;
-                        // port.row = port.index % DIMENSION;
-                        // port.col = Math.floor(port.index / DIMENSION);
-                        // port.x = port.row * TILE_WIDTH;
-                        // port.y = port.col * TILE_HEIGHT;
-                        // port.tile = collapsingTiles[collapsingIndex];
-                        return port;
-                    });
-                    collapsingTiles[collapsingIndex].rotation += 90;
 
-                    console.log(
-                        "After collapsingTile:",
-                        collapsingTiles[collapsingIndex]
-                    );
-                }
+                const referenceTile = referenceTiles[referenceIdx];
+                // console.log("referenceTile", referenceTile);
+                // console.log(
+                //     "Before collapsing tile:",
+                //     collapsingTiles[collapsingIdx]
+                // );
+                collapsingTiles[collapsingIdx] = new Tile(p, collapsingIdx);
+                collapsingTiles[collapsingIdx].setTileState(
+                    referenceTile.ports,
+                    rotation,
+                    true
+                );
+                // console.log(
+                //     "After collapsing tile:",
+                //     collapsingTiles[collapsingIdx]
+                // );
             }
 
-            function removeDuplicateTiles(tiles) {
-                return tiles.filter(
-                    (tile, index, self) =>
-                        index ===
-                        self.findIndex(
-                            (t) =>
-                                t.TOP === tile.TOP &&
-                                t.RIGHT === tile.RIGHT &&
-                                t.BOTTOM === tile.BOTTOM &&
-                                t.LEFT === tile.LEFT
-                        )
-                );
+            // Maintains the position of each tile within its array, but replaces it with null if it is a duplicate
+            function removeDuplicateTiles(tiles, maintainPosition) {
+                if (maintainPosition) {
+                    for (let i = 0; i < tiles.length; i++) {
+                        const tile = tiles[i];
+                        if (tile === null) continue;
+                        const duplicateIdx = tiles.findIndex((t, idx) => {
+                            if (t !== null) {
+                                let referenceTileSigs = t.signatures;
+                                let thisTileSigs = tile.signatures;
+                                for (const refRotation in referenceTileSigs) {
+                                    for (const thisRotation in thisTileSigs) {
+                                        if (
+                                            i !== idx &&
+                                            referenceTileSigs[refRotation] ==
+                                                thisTileSigs[thisRotation]
+                                        ) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        if (duplicateIdx > -1) tiles[duplicateIdx] = null;
+                    }
+                    return tiles;
+                } else {
+                    return tiles.filter(
+                        (tile, index, self) =>
+                            index ===
+                            self.findIndex((t) => {
+                                let tileSignature = tile.signature;
+                                let tileSignatures = arrayCycles(tileSignature);
+                                // console.log(
+                                //     index,
+                                //     tile.signature,
+                                //     tileSignatures
+                                // );
+                                for (const tileSig of tileSignatures) {
+                                    if (
+                                        JSON.stringify(tileSig) ===
+                                        JSON.stringify(t.signature)
+                                    )
+                                        return true;
+                                }
+                            })
+                    );
+                }
             }
         }, canvasRef.current);
 
@@ -232,3 +382,43 @@ export default function WaveFunctionCollapse() {
 //         }
 //     }
 // }
+
+export function assert(condition, message) {
+    if (!condition) {
+        throw new Error(message || "Assertion failed");
+    }
+}
+
+export function assertType(value, type, message) {
+    const t = typeof value;
+    if (t !== type) {
+        throw new Error(
+            message ||
+                `Value < ${value.toString()} > is type "${t}", not type "${type}"`
+        );
+    }
+}
+
+export function arrayCycles(arr) {
+    assertType(arr, "object");
+    let arrCycles = [];
+    for (let i = 0; i < 4; i++) {
+        arr.unshift(arr.pop());
+        arrCycles.push(JSON.parse(JSON.stringify(arr)));
+    }
+    return arrCycles;
+}
+
+function generateBinaries(str, res = []) {
+    assertType(str, "string");
+    assertType(res, "object");
+    if (str.includes("?")) {
+        let str1 = str.replace(/\?/, "0"); //only replace once
+        let str2 = str.replace(/\?/, "1"); //only replace once
+        generateBinaries(str1, res);
+        generateBinaries(str2, res);
+    } else {
+        res.push(str);
+    }
+    return res;
+}

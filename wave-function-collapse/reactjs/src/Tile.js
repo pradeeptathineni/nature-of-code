@@ -8,6 +8,9 @@ import {
     PORT_HEIGHT,
     NUM_POSSIBLE_OPTIONS,
     PORT_ACTIVE_CHANCE,
+    arrayCycles,
+    assert,
+    assertType,
 } from "./WaveFunctionCollapse";
 
 const SIDE_COLORS = {
@@ -16,7 +19,12 @@ const SIDE_COLORS = {
     3: [255, 255, 0],
     4: [0, 150, 255],
 };
-
+const SIDE_DEFINITION = {
+    1: "SIDE_TOP",
+    2: "SIDE_RIGHT",
+    3: "SIDE_BOTTOM",
+    4: "SIDE_LEFT",
+};
 let _rotation = 0;
 
 export default class Tile {
@@ -26,22 +34,30 @@ export default class Tile {
         forceOne = false,
         forceNone = false,
         forceAll = false,
-        options,
-        ports
+        options = {}
     ) {
-        this.options =
-            options === undefined
-                ? [[...Array(NUM_POSSIBLE_OPTIONS).keys()]]
-                : options;
+        this.options = options;
         this.img = p.createGraphics(TILE_WIDTH, TILE_HEIGHT);
         this.img.angleMode(p.DEGREES);
         this.img.rectMode(p.CENTER);
         this.img.translate(TILE_WIDTH / 2, TILE_HEIGHT / 2);
         this.index = index;
-        this.row = this.index % DIMENSION;
-        this.col = Math.floor(this.index / DIMENSION);
-        this.x = this.row * TILE_WIDTH;
-        this.y = this.col * TILE_HEIGHT;
+        this.row = Math.floor(this.index / DIMENSION);
+        this.col = this.index % DIMENSION;
+        this.x = this.col * TILE_WIDTH;
+        this.y = this.row * TILE_HEIGHT;
+
+        this.TILE_TOP = this.row - 1 >= 0 ? this.index - DIMENSION : null;
+        this.TILE_RIGHT = this.col + 1 < DIMENSION ? this.index + 1 : null;
+        this.TILE_BOTTOM =
+            this.row + 1 < DIMENSION ? this.index + DIMENSION : null;
+        this.TILE_LEFT = this.col - 1 >= 0 ? this.index - 1 : null;
+
+        this.SIDE_TOP =
+            this.SIDE_RIGHT =
+            this.SIDE_BOTTOM =
+            this.SIDE_LEFT =
+                "";
 
         const generatePorts = () => {
             let oneActivePortsExists = false;
@@ -68,54 +84,96 @@ export default class Tile {
 
             return ports;
         };
-        this.ports = ports === undefined ? generatePorts(ports) : ports;
 
-        // console.log("ports:", this.ports);
-        this.TOP = this.RIGHT = this.BOTTOM = this.LEFT = "";
-        let sideDefinition = {
-            1: "TOP",
-            2: "RIGHT",
-            3: "BOTTOM",
-            4: "LEFT",
-        };
-        for (let i in this.ports) {
-            let port = this.ports[i];
-            if (port.side > 0) {
-                this[sideDefinition[port.side]] += port.active ? "1" : "0";
-            }
+        this.setTileState((this.ports = generatePorts()), 0, false, true);
+    }
+
+    setTileState(ports, rotation, collapsed = false, omitPortsMap = false) {
+        if (!omitPortsMap)
+            this.ports.map((port) => {
+                const referencePorts = ports;
+                let referencePort;
+                for (const refPort of referencePorts) {
+                    if (refPort.index === port.index) {
+                        referencePort = refPort;
+                    }
+                }
+                port.active = referencePort.active;
+                return port;
+            });
+
+        for (let i = 1; i < 5; i++) {
+            this[SIDE_DEFINITION[i]] = "";
         }
-        const t = this.TOP,
-            r = this.RIGHT,
-            b = this.BOTTOM,
-            l = this.LEFT;
-        this.signatures = [
-            t + r + b + l,
-            r + b + l + t,
-            b + l + t + r,
-            r + b + l + t,
-        ];
-        this.rotation = 0;
-        // console.log(
-        //     `Tile:\t\t${index}\nw*h:\t\t${TILE_WIDTH}*${TILE_HEIGHT}\n(X, Y):\t\t(${this.x}, ${this.y})\n(row, col):\t\t(${this.row}, ${this.col})`
-        // );
+        for (const port of this.ports) {
+            if (port.side > 0)
+                this[SIDE_DEFINITION[port.side]] += port.active ? "1" : "0";
+        }
+
+        const t = this.SIDE_TOP,
+            r = this.SIDE_RIGHT,
+            b = this.SIDE_BOTTOM,
+            l = this.SIDE_LEFT;
+        this.signature = [t, r, b, l];
+
+        this.setRotation(rotation);
+        this.rotationSignatures = {};
+        this.rotationSignatures[t + r + b + l] = 0;
+        this.rotationSignatures[l + t + r + b] = 90;
+        this.rotationSignatures[b + l + t + r] = 180;
+        this.rotationSignatures[r + b + l + t] = 270;
+
+        this.collapsed = collapsed;
     }
 
     setRotation(rotation) {
-        if (rotation >= 360) rotation %= 360;
+        assertType(rotation, "number");
+        assert(
+            rotation % 90 === 0,
+            `Rotation value < ${rotation} > is not a multiple of 90`
+        );
+
+        let sig = this.signature;
         this.rotation = rotation;
-        _rotation = rotation;
+        if (this.rotation >= 360) this.rotation %= 360;
+        _rotation = this.rotation;
+        for (let i = 0; i < Math.floor(rotation / 90); i++) {
+            sig.unshift(sig.pop());
+        }
+        this.VSIDE_TOP = [...sig[0]].reverse().join("");
+        this.VSIDE_RIGHT = [...sig[1]].reverse().join("");
+        this.VSIDE_BOTTOM = [...sig[2]].reverse().join("");
+        this.VSIDE_LEFT = [...sig[3]].reverse().join("");
         return this.rotation;
     }
 
     addToRotation(rotation) {
+        assertType(rotation, "number");
+        assert(
+            rotation % 90 === 0,
+            `Rotation value < ${rotation} > must be a multiple of 90`
+        );
+
+        let sig = this.signature;
         this.rotation += rotation;
         if (this.rotation >= 360) this.rotation %= 360;
         _rotation = this.rotation;
-
+        for (let i = 0; i < Math.floor(rotation / 90); i++) {
+            sig.unshift(sig.pop());
+        }
+        this.VSIDE_TOP = sig[0];
+        this.VSIDE_RIGHT = sig[1];
+        this.VSIDE_BOTTOM = sig[2];
+        this.VSIDE_LEFT = sig[3];
         return this.rotation;
     }
 
     draw(p, drawOutline = true, drawPattern = true, drawIndices = true) {
+        assertType(p, "object");
+        assertType(drawOutline, "boolean");
+        assertType(drawPattern, "boolean");
+        assertType(drawIndices, "boolean");
+
         this.img.clear();
 
         if (drawOutline) {
@@ -160,17 +218,30 @@ export default class Tile {
             this.img.fill(0);
             this.img.text(`(${this.x}, ${this.y})`, 0, 0);
             this.img.pop();
+            // p.push();
+            // this.img.strokeWeight(2);
+            // this.img.stroke(255);
+            // this.img.textAlign(this.img.CENTER);
+            // this.img.textSize(Math.round(TILE_WIDTH / 5));
+            // this.img.fill(255, 0, 0);
+            // this.img.text(Object.keys(this.options).length, 0, 5);
+            // this.img.fill(255);
+            // p.pop();
         }
+
         p.image(this.img, this.x, this.y);
     }
 
     drawLineAtPort(p, port) {
+        assertType(p, "object");
+        assertType(port, "object");
+
         p.push();
         this.img.noStroke();
         this.img.fill(0);
         this.img.translate(
-            -TILE_WIDTH / 2 - TILE_WIDTH * this.row,
-            -TILE_HEIGHT / 2 - TILE_HEIGHT * this.col
+            -TILE_WIDTH / 2 - TILE_WIDTH * this.col,
+            -TILE_HEIGHT / 2 - TILE_HEIGHT * this.row
         );
         const rectWidth = TILE_WIDTH / (TILE_PORTS * 4);
         const rectHeight = TILE_HEIGHT / 2 + rectWidth / 2;
@@ -263,7 +334,7 @@ class Port {
         // console.log(`Tile (X, Y): (${tileX}, ${tileY})\nPort (Index, X, Y): (${this.index}, ${this.x}, ${this.y})`);
     }
 
-    draw(p) {
+    draw() {
         this.tile.img.push();
         this.tile.img.translate(
             -TILE_WIDTH / 2 - TILE_WIDTH * this.tile.row,
