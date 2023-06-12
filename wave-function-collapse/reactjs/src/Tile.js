@@ -88,8 +88,33 @@ export default class Tile {
         this.setTileState((this.ports = generatePorts()), 0, false, true);
     }
 
-    setTileState(ports, rotation, collapsed = false, omitPortsMap = false) {
-        if (!omitPortsMap)
+    setTileState(
+        ports,
+        rotation,
+        collapsed = false,
+        omitPortsMap = false,
+        isSignature = false
+    ) {
+        if (isSignature) {
+            let portsSeparated = [];
+            if (typeof ports === "string") {
+                portsSeparated = ports.split("");
+            } else if (typeof ports === "object") {
+                let count = 0;
+                ports.forEach((port) => {
+                    if (count === DIMENSION) {
+                        count = 0;
+                    } else {
+                        portsSeparated.push(...port.split(""));
+                        count++;
+                    }
+                });
+            }
+            this.ports.forEach((port, i) => {
+                port.active = Number(portsSeparated[i]);
+            });
+        }
+        if (!omitPortsMap && !isSignature)
             this.ports.map((port) => {
                 const referencePorts = ports;
                 let referencePort;
@@ -124,6 +149,7 @@ export default class Tile {
         this.rotationSignatures[r + b + l + t] = 270;
 
         this.collapsed = collapsed;
+        console.log(this);
     }
 
     setRotation(rotation) {
@@ -168,7 +194,7 @@ export default class Tile {
         return this.rotation;
     }
 
-    draw(p, drawOutline = true, drawPattern = true, drawIndices = true) {
+    draw(p, drawPattern = true, drawOutline = true, drawIndices = true) {
         assertType(p, "object");
         assertType(drawOutline, "boolean");
         assertType(drawPattern, "boolean");
@@ -218,16 +244,17 @@ export default class Tile {
             this.img.fill(0);
             this.img.text(`(${this.x}, ${this.y})`, 0, 0);
             this.img.pop();
-            // p.push();
-            // this.img.strokeWeight(2);
-            // this.img.stroke(255);
-            // this.img.textAlign(this.img.CENTER);
-            // this.img.textSize(Math.round(TILE_WIDTH / 5));
-            // this.img.fill(255, 0, 0);
-            // this.img.text(Object.keys(this.options).length, 0, 5);
-            // this.img.fill(255);
-            // p.pop();
         }
+
+        p.push();
+        this.img.strokeWeight(2);
+        this.img.stroke(255);
+        this.img.textAlign(this.img.CENTER);
+        this.img.textSize(Math.round(TILE_WIDTH / 5));
+        this.img.fill(255, 0, 0);
+        this.img.text(Object.keys(this.options).length, 0, 5);
+        this.img.fill(255);
+        p.pop();
 
         p.image(this.img, this.x, this.y);
     }

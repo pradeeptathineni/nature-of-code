@@ -26,7 +26,6 @@ const INCLUDE_EMPTY_TILE = false;
 const INCLUDE_FULL_TILE = true;
 
 let TOGGLE = 0;
-let STARTING_TILE;
 let LOOP_COUNT = 0;
 
 export default function WaveFunctionCollapse() {
@@ -84,17 +83,18 @@ export default function WaveFunctionCollapse() {
                     TOGGLE === 0 ? collapsingTiles : referenceTiles;
                 for (let i = 0; i < drawTheseTiles.length; i++) {
                     let tile = drawTheseTiles[i];
-                    if (tile !== null) tile.draw(p, false, true, false);
+                    if (tile !== null) tile.draw(p, true, true, false);
                 }
                 // console.log(`  [END] \tloop ${LOOP_COUNT}`);
                 LOOP_COUNT++;
-                // p.noLoop();
+                p.noLoop();
             };
 
             p.mouseClicked = () => {
                 if (p.mouseX <= TILE_WIDTH && p.mouseY <= TILE_HEIGHT) {
                     TOGGLE++;
                     if (TOGGLE >= 2) TOGGLE = 0;
+                    console.log(TOGGLE);
                     // console.log(
                     //     TOGGLE
                     //         ? "reference tiles will be shown next frame"
@@ -170,6 +170,18 @@ export default function WaveFunctionCollapse() {
                         let possibleSignatures = generateBinaries(
                             signatureNeeded.join("")
                         );
+                        console.log("signatureNeeded", signatureNeeded);
+                        let chosenSignature =
+                            possibleSignatures[
+                                Math.floor(
+                                    Math.random() * possibleSignatures.length
+                                )
+                            ];
+                        c.randomBackupCreateSignature = chosenSignature;
+                        console.log(
+                            "randomBackupCreateSignature",
+                            chosenSignature
+                        );
 
                         // console.log("possibleSignatures", possibleSignatures);
 
@@ -216,7 +228,8 @@ export default function WaveFunctionCollapse() {
                     INCLUDE_EMPTY_TILE * 1 + INCLUDE_FULL_TILE * 1;
                 let referenceIdx,
                     collapsingIdx,
-                    rotation = 0;
+                    rotation = 0,
+                    createNewTile = false;
 
                 // Find the tile indices with the lowest options
                 let leastOptions = Number.POSITIVE_INFINITY;
@@ -240,9 +253,6 @@ export default function WaveFunctionCollapse() {
                         }
                     }
                 }
-                // console.log("equalLeastOptions", equalLeastOptions);
-
-                if (equalLeastOptions.length === 0) return;
 
                 // Choose an index of a least options collapsing tile randomly
                 collapsingIdx =
@@ -250,7 +260,9 @@ export default function WaveFunctionCollapse() {
                         Math.floor(Math.random() * equalLeastOptions.length)
                     ];
 
-                // console.log("collapsingIdx", collapsingIdx);
+                if (collapsingIdx === undefined) return;
+
+                console.log("collapsingIdx", collapsingIdx);
 
                 // Get the index of a random or specific reference tile
                 if (init) {
@@ -270,7 +282,6 @@ export default function WaveFunctionCollapse() {
                 } else {
                     let finalOptions = [];
                     const options = collapsingTiles[collapsingIdx].options;
-                    // console.log(collapsingTiles[collapsingIdx]);
                     for (let i = 0; i < referenceTiles.length; i++) {
                         const refRotationSigs =
                             referenceTiles[i].rotationSignatures;
@@ -282,13 +293,18 @@ export default function WaveFunctionCollapse() {
                             }
                         }
                     }
-                    // console.log(finalOptions);
-                    let finalChoice =
-                        finalOptions[
-                            Math.floor(Math.random() * finalOptions.length)
-                        ];
-                    referenceIdx = finalChoice[0];
-                    rotation = finalChoice[1];
+
+                    if (finalOptions.length === 0) {
+                        createNewTile = true;
+                    } else {
+                        let finalChoice =
+                            finalOptions[
+                                Math.floor(Math.random() * finalOptions.length)
+                            ];
+                        referenceIdx = finalChoice[0];
+                        rotation = finalChoice[1];
+                    }
+
                     // console.log(referenceIdx, rotation);
                 }
 
@@ -298,12 +314,24 @@ export default function WaveFunctionCollapse() {
                 //     "Before collapsing tile:",
                 //     collapsingTiles[collapsingIdx]
                 // );
+                const createSignature =
+                    collapsingTiles[collapsingIdx].randomBackupCreateSignature;
                 collapsingTiles[collapsingIdx] = new Tile(p, collapsingIdx);
-                collapsingTiles[collapsingIdx].setTileState(
-                    referenceTile.ports,
-                    rotation,
-                    true
-                );
+                if (createNewTile) {
+                    collapsingTiles[collapsingIdx].setTileState(
+                        createSignature,
+                        rotation,
+                        true,
+                        false,
+                        true
+                    );
+                } else {
+                    collapsingTiles[collapsingIdx].setTileState(
+                        referenceTile.ports,
+                        0,
+                        true
+                    );
+                }
                 // console.log(
                 //     "After collapsing tile:",
                 //     collapsingTiles[collapsingIdx]
